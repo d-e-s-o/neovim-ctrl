@@ -39,6 +39,9 @@ version = "0.6"
 git = "https://github.com/d-e-s-o/neovim-lib"
 rev = "101cb1a7dd728a8ea44985ffca637f0d368039cf"
 
+[dependencies.rmpv]
+version = "1.0.2"
+
 [lints.rust]
 deprecated_safe = "warn"
 future_incompatible = "warn"
