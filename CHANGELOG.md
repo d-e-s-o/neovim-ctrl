@@ -1,5 +1,5 @@
-Unreleased
-----------
+0.2.2
+-----
 - Replaced unmaintained `neovim-lib` dependency with built-in
   Msgpack-RPC client
 - Bumped minimum required Rust version to `1.85.0`
