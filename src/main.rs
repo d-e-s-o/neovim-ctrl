@@ -1,4 +1,4 @@
-// Copyright (C) 2019-2025 Daniel Mueller <deso@posteo.net>
+// Copyright (C) 2019-2026 Daniel Mueller <deso@posteo.net>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 //! `neovim-ctrl` is a program for finding and interacting with a Neovim
@@ -39,12 +39,12 @@ use libc::S_IFCHR;
 use libc::S_IFMT;
 use libc::S_IFSOCK;
 
-use neovim_lib::neovim::map_generic_error;
-use neovim_lib::CallError;
-use neovim_lib::Neovim;
-use neovim_lib::NeovimApi;
-use neovim_lib::Session;
-use neovim_lib::Value;
+use rmpv::Value;
+
+use rpc::CallError;
+use rpc::Session;
+
+mod rpc;
 
 /// The prefix of all Neovim binaries.
 const NVIM: &str = "nvim";
@@ -440,34 +440,50 @@ enum Status {
   Unchanged,
 }
 
+/// Retrieve the currently active window of a Neovim instance.
+fn current_window(session: &mut Session) -> StdResult<Value, CallError> {
+  session.call(
+    "nvim_call_function",
+    vec![Value::from("nvim_get_current_win"), Value::Array(vec![])],
+  )
+}
+
+
+/// Check whether the mode retrieved from a Neovim instance indicates
+/// that it is currently blocked.
+fn is_blocking(mode: &Value) -> bool {
+  match mode {
+    Value::Map(entries) => entries
+      .iter()
+      .find(|(key, _)| key.as_str() == Some("blocking"))
+      .is_some_and(|(_, value)| value.as_bool() == Some(true)),
+    _ => false,
+  }
+}
+
 /// Feed keys to the Neovim instance represented by the given session.
 fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, CallError)> {
-  let () = session.start_event_loop();
-
-  let mut nvim = Neovim::new(session);
-
   // Regular function calls are handled in a deferred manner: they are
   // queued on the main loop and processed sequentially with normal
   // input. So if the editor is waiting for user input in a "modal"
   // fashion (e.g. the hit-enter-prompt), the request will block. We
-  // don't want that to happen and so we check with the asynchronous
-  // get_mode call whether Neovim is currently blocked and bail out
+  // don't want that to happen and so we check with the "fast"
+  // nvim_get_mode call whether Neovim is currently blocked and bail out
   // early if that is the case.
   //
   // See https://neovim.io/doc/user/api.html#api-fast
-  let mode = nvim.get_mode().ctx(|| "failed to query Neovim mode")?;
-  if let Some((_blocking, value)) = mode.iter().find(|(k, _)| k.as_str() == Some("blocking")) {
-    if value.as_bool() == Some(true) {
-      return Err(CallError::GenericError(
-        "neovim instance is currently blocked and unable to serve requests".to_string(),
-      ))
-      .ctx(|| "unable interact with neovim");
-    }
+  let mode = session
+    .call("nvim_get_mode", vec![])
+    .ctx(|| "failed to query Neovim mode")?;
+
+  if is_blocking(&mode) {
+    let err = CallError::Generic(
+      "neovim instance is currently blocked and unable to serve requests".to_string(),
+    );
+    return Err(err).ctx(|| "unable interact with neovim");
   }
 
-  let before = nvim
-    .call_function("nvim_get_current_win", vec![])
-    .ctx(|| "failed to retrieve currently active window")?;
+  let before = current_window(&mut session).ctx(|| "failed to retrieve currently active window")?;
 
   let args = vec![
     Value::Binary(keys),
@@ -477,15 +493,11 @@ fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, Cal
     Value::String("m".into()),
     Value::Boolean(false),
   ];
-  let _value = nvim
-    .session
+  let _value = session
     .call("nvim_feedkeys", args)
-    .map_err(map_generic_error)
     .ctx(|| "failed to feed keys to Neovim")?;
 
-  let after = nvim
-    .call_function("nvim_get_current_win", vec![])
-    .ctx(|| "failed to retrieve currently active window")?;
+  let after = current_window(&mut session).ctx(|| "failed to retrieve currently active window")?;
 
   if before != after {
     Ok(Status::Changed)
@@ -689,5 +701,42 @@ fn main() -> StdResult<(), int::ExitError> {
       None,
       IoError::new(ErrorKind::NotFound, "no neovim process found").into(),
     ))?
+  }
+}
+
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+
+
+  /// Ensure that a [`is_blocking`] correctly detects a blocked
+  /// instance.
+  #[test]
+  fn blocked_instance_is_detected() {
+    let mode = Value::Map(vec![(Value::from("blocking"), Value::Boolean(true))]);
+    assert!(is_blocking(&mode));
+
+    let mode = Value::Map(vec![
+      (Value::from("mode"), Value::from("n")),
+      (Value::from("blocking"), Value::Boolean(true)),
+    ]);
+    assert!(is_blocking(&mode));
+  }
+
+  #[test]
+  fn unblocked_instance_is_not_detected() {
+    let mode = Value::Map(vec![(Value::from("blocking"), Value::Boolean(false))]);
+    assert!(!is_blocking(&mode));
+
+    // A mode without any `blocking` key.
+    let mode = Value::Map(vec![(Value::from("mode"), Value::from("n"))]);
+    assert!(!is_blocking(&mode));
+
+    // Not a map at all.
+    let mode = Value::from("blocking");
+    assert!(!is_blocking(&mode));
+
+    assert!(!is_blocking(&Value::Nil));
   }
 }
