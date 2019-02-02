@@ -85,9 +85,11 @@ use std::str::FromStr;
 
 use libc::dev_t as Dev;
 use libc::ENXIO;
+use libc::ino64_t as Inode;
 use libc::mode_t as Mode;
 use libc::S_IFCHR;
 use libc::S_IFMT;
+use libc::S_IFSOCK;
 use libc::stat64 as Stat64;
 use libc::stat64;
 
@@ -118,6 +120,10 @@ where
   fn filter_flat<F>(self, f: F) -> Option<Self>
   where
     F: FnMut(&T) -> StdResult<bool, E>;
+
+  fn map_flat<F, U>(self, f: F) -> StdResult<U, E>
+  where
+    F: FnMut(T) -> StdResult<U, E>;
 }
 
 impl<T, E> Filter<T, E> for StdResult<T, E> {
@@ -144,6 +150,16 @@ impl<T, E> Filter<T, E> for StdResult<T, E> {
         Err(err) => Some(Err(err)),
       },
       Err(err) => Some(Err(err)),
+    }
+  }
+
+  fn map_flat<F, U>(self, mut f: F) -> StdResult<U, E>
+  where
+    F: FnMut(T) -> StdResult<U, E>,
+  {
+    match self {
+      Ok(val) => f(val),
+      Err(err) => Err(err),
     }
   }
 }
@@ -310,6 +326,52 @@ fn filter_nvim(entry: &DirEntry) -> Result<bool> {
     })?
 }
 
+fn is_socket(mode: Mode) -> bool {
+  mode & S_IFMT == S_IFSOCK
+}
+
+fn check_socket<P>(path: P) -> Result<Inode>
+where
+  P: AsRef<OsStr>,
+{
+  let path = path.as_ref();
+  let buf = stat(path)?;
+
+  if is_socket(buf.st_mode) {
+    Ok(buf.st_ino)
+  } else {
+    Err(IoError::new(ErrorKind::NotFound, "no socket found"))
+      .ctx(|| format!("file {} is not a socket", path.to_string_lossy()))
+  }
+}
+
+/// A filter_map handler to map a process entry to a UNIX domain socket path.
+fn map_socket_inodes(entry: DirEntry) -> Result<impl Iterator<Item = Result<Inode>>> {
+  let mut path = entry.path();
+  path.push("fd");
+
+  read_dir(&path)
+    .ctx(|| format!("failed to read directory {}", path.to_string_lossy()))
+    .map(move |x| {
+      x.filter_map(move |entry| match entry {
+        Ok(entry) => {
+          let path = entry.path();
+          if let Ok(inode) = check_socket(&path) {
+            Some(Ok(inode))
+          } else {
+            None
+          }
+        },
+        Err(err) => Some(Err(err).ctx(|| {
+          format!(
+            "failed to read directory entry below {}",
+            path.to_string_lossy(),
+          )
+        })),
+      })
+    })
+}
+
 
 mod int {
   use std::fmt::Debug;
@@ -384,6 +446,7 @@ fn main() -> StdResult<(), int::ExitError> {
     .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
     .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
     .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)))
+    .map(|x| x.map_flat(|(x0, x1)| map_socket_inodes(x1).map(|x| (x0, x))))
     .next();
 
   Ok(())
