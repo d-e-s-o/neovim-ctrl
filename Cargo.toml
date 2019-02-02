@@ -22,3 +22,6 @@ particular terminal.
 [[bin]]
 name = "nvim-ctrl"
 path = "src/main.rs"
+
+[dependencies.libc]
+version = "0.2"

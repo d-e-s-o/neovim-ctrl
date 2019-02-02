@@ -68,7 +68,72 @@
 //! instance running in the current terminal.
 
 use std::env::args_os;
+use std::ffi::CString;
+use std::ffi::OsStr;
+use std::io::Error as IoError;
+use std::io::ErrorKind;
+use std::io::Result as IoResult;
+use std::mem::uninitialized;
+use std::os::unix::ffi::OsStringExt;
 use std::result::Result as StdResult;
+
+use libc::dev_t as Dev;
+use libc::mode_t as Mode;
+use libc::S_IFCHR;
+use libc::S_IFMT;
+use libc::stat64 as Stat64;
+use libc::stat64;
+
+
+type Result<T> = StdResult<T, IoError>;
+
+
+/// Check the return value of a system call.
+fn check<T>(result: T, error: T) -> IoResult<()>
+where
+  T: Copy + PartialOrd<T>,
+{
+  if result == error {
+    Err(IoError::last_os_error())
+  } else {
+    Ok(())
+  }
+}
+
+/// Check if the given mode represents a character device.
+fn is_chardev(mode: Mode) -> bool {
+  mode & S_IFMT == S_IFCHR
+}
+
+fn stat<P>(path: P) -> Result<Stat64>
+where
+  P: AsRef<OsStr>,
+{
+  let mut buf = unsafe { uninitialized() };
+  let path = path.as_ref();
+  let path_buf = path.to_os_string().into_vec();
+  // We need to ensure NUL termination when performing the system call.
+  let file = unsafe { CString::from_vec_unchecked(path_buf) };
+  let result = unsafe { stat64(file.as_ptr(), &mut buf) };
+
+  check(result, -1)?;
+
+  Ok(buf)
+}
+
+/// Check whether a path represents a terminal and retrieve its device descriptor.
+fn check_tty<P>(path: P) -> Result<Dev>
+where
+  P: AsRef<OsStr>,
+{
+  let buf = stat(path)?;
+
+  if is_chardev(buf.st_mode) {
+    Ok(buf.st_rdev)
+  } else {
+    Err(IoError::new(ErrorKind::NotFound, "no controlling terminal found"))
+  }
+}
 
 
 mod int {
@@ -77,8 +142,11 @@ mod int {
   use std::fmt::Formatter;
   use std::fmt::Result;
 
+  use super::IoError;
+
   pub enum Error {
     UsageError,
+    IoError(IoError),
   }
 
   impl Display for Error {
@@ -88,7 +156,14 @@ mod int {
           f,
           "Usage: nvim-ctrl tty"
         ),
+        Error::IoError(err) => write!(f, "{}", err),
       }
+    }
+  }
+
+  impl From<IoError> for Error {
+    fn from(e: IoError) -> Self {
+      Error::IoError(e)
     }
   }
 
@@ -96,6 +171,12 @@ mod int {
   // An error class for the purpose of being able to return a Result with
   // a sane error representation from `main`.
   pub struct ExitError(pub Error);
+
+  impl From<IoError> for ExitError {
+    fn from(e: IoError) -> Self {
+      Self(e.into())
+    }
+  }
 
   impl From<Error> for ExitError {
     fn from(e: Error) -> Self {
@@ -117,6 +198,7 @@ mod int {
 
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
-  let _tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
+  let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
+  let _terminal = check_tty(tty)?;
   Ok(())
 }
