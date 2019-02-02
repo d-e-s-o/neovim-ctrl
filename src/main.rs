@@ -84,6 +84,7 @@ use std::result::Result as StdResult;
 use std::str::FromStr;
 
 use libc::dev_t as Dev;
+use libc::ENXIO;
 use libc::mode_t as Mode;
 use libc::S_IFCHR;
 use libc::S_IFMT;
@@ -111,6 +112,10 @@ where
   fn filter<F>(&self, f: F) -> bool
   where
     F: FnMut(&T) -> bool;
+
+  fn filter_flat<F>(self, f: F) -> Option<Self>
+  where
+    F: FnMut(&T) -> StdResult<bool, E>;
 }
 
 impl<T, E> Filter<T, E> for StdResult<T, E> {
@@ -122,6 +127,21 @@ impl<T, E> Filter<T, E> for StdResult<T, E> {
     match &self {
       Ok(val) => f(val),
       Err(_) => true,
+    }
+  }
+
+  /// Filter based on a f and flatten errors into ones self.
+  fn filter_flat<F>(self, mut f: F) -> Option<Self>
+  where
+    F: FnMut(&T) -> StdResult<bool, E>,
+  {
+    match self {
+      Ok(val) => match f(&val) {
+        Ok(true) => Some(Ok(val)),
+        Ok(false) => None,
+        Err(err) => Some(Err(err)),
+      },
+      Err(err) => Some(Err(err)),
     }
   }
 }
@@ -253,6 +273,27 @@ where
   entry.path().file_name() != Some(self_.as_ref())
 }
 
+fn filter_tty(entry: &DirEntry, tty: Dev) -> Result<bool> {
+  let mut path = entry.path();
+  path.push("fd");
+  path.push("0");
+
+  match check_tty(&path) {
+    Ok(other_tty) => Ok(other_tty == tty),
+    Err(err) => {
+      // Skip all processes that do not have a controlling
+      // terminal.
+      if err.1.kind() == ErrorKind::NotFound ||
+         err.1.kind() == ErrorKind::PermissionDenied ||
+         err.1.raw_os_error() == Some(ENXIO) {
+        Ok(false)
+      } else {
+        Err(err)
+      }
+    }
+  }
+}
+
 
 mod int {
   use std::fmt::Debug;
@@ -322,10 +363,10 @@ fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
   let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
   let self_ = find_self()?;
-  let _terminal = check_tty(tty)?;
+  let terminal = check_tty(tty)?;
   let _nvim = proc_entries()?
     .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
+    .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
     .next();
-
   Ok(())
 }
