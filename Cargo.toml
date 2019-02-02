@@ -18,3 +18,7 @@ description = """
 A program to find and interact with a Neovim instance running in a
 particular terminal.
 """
+
+[[bin]]
+name = "nvim-ctrl"
+path = "src/main.rs"
