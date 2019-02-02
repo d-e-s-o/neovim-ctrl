@@ -72,8 +72,11 @@ use std::env::args_os;
 use std::ffi::CString;
 use std::ffi::OsStr;
 use std::fs::DirEntry;
+use std::fs::File;
 use std::fs::read_dir;
 use std::fs::read_link;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
@@ -98,6 +101,8 @@ use libc::stat64;
 const NVIM: &str = "nvim";
 /// The path to the /proc virtual file system.
 const PROC: &str = "/proc";
+/// The path to a file listing all UNIX domain sockets on the system.
+const PROC_UNIX: &str = "/proc/net/unix";
 /// The symlink to the entry for the current process in /proc.
 const PROC_SELF: &str = "/proc/self";
 
@@ -124,6 +129,10 @@ where
   fn map_flat<F, U>(self, f: F) -> StdResult<U, E>
   where
     F: FnMut(T) -> StdResult<U, E>;
+
+  fn filter_map_flat<F, U>(self, f: F) -> Option<StdResult<U, E>>
+  where
+    F: FnMut(T) -> Option<StdResult<U, E>>;
 }
 
 impl<T, E> Filter<T, E> for StdResult<T, E> {
@@ -160,6 +169,16 @@ impl<T, E> Filter<T, E> for StdResult<T, E> {
     match self {
       Ok(val) => f(val),
       Err(err) => Err(err),
+    }
+  }
+
+  fn filter_map_flat<F, U>(self, mut f: F) -> Option<StdResult<U, E>>
+  where
+    F: FnMut(T) -> Option<StdResult<U, E>>,
+  {
+    match self {
+      Ok(val) => f(val),
+      Err(err) => Some(Err(err)),
     }
   }
 }
@@ -372,6 +391,36 @@ fn map_socket_inodes(entry: DirEntry) -> Result<impl Iterator<Item = Result<Inod
     })
 }
 
+fn map_inode_to_socket(line: &str, inode: Inode) -> Option<StdResult<PathBuf, IoError>> {
+  // The inode is the 7th entry and the path the 8th.
+  let mut parts = line.split_whitespace().skip(6);
+  let inod = parts.next()?;
+  let path = parts.next()?;
+
+  match Inode::from_str(inod) {
+    Ok(x) if x == inode => Some(Ok(path.into())),
+    Ok(_) => None,
+    Err(_) => Some(Err(IoError::new(
+      ErrorKind::Other,
+      format!("encountered unparsable inode: {}", inod),
+    ))),
+  }
+}
+
+/// Map an inode to a UNIX domain socket path.
+fn map_unix_socket(inode: Inode) -> Option<Result<PathBuf>> {
+  File::open(PROC_UNIX)
+    .ctx(|| format!("failed to open {}", PROC_UNIX))
+    .filter_map_flat(|file| {
+      BufReader::new(file)
+        .lines()
+        .skip(1)
+        .filter_map(|line| line.filter_map_flat(|x| map_inode_to_socket(&x, inode)))
+        .map(|x| x.ctx(|| format!("error while reading lines from {}", PROC_UNIX)))
+        .next()
+    })
+}
+
 
 mod int {
   use std::fmt::Debug;
@@ -440,6 +489,9 @@ mod int {
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
   let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
+
+  // Yes, iterators all the way down. That was an experiment. One could
+  // argue it did not go too well :-)
   let self_ = find_self()?;
   let terminal = check_tty(tty)?;
   let _nvim = proc_entries()?
@@ -447,6 +499,7 @@ fn main() -> StdResult<(), int::ExitError> {
     .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
     .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)))
     .map(|x| x.map_flat(|(x0, x1)| map_socket_inodes(x1).map(|x| (x0, x))))
+    .map(|x| x.map(|(x0, x1)| (x0, x1.filter_map(|x| x.filter_map_flat(map_unix_socket)))))
     .next();
 
   Ok(())
