@@ -1,0 +1,20 @@
+[package]
+name = "neovim-ctrl"
+version = "0.1.0"
+edition = "2018"
+authors = ["Daniel Mueller <deso@posteo.net>"]
+license = "GPL-3.0-or-later"
+homepage = "https://github.com/d-e-s-o/neovim-ctrl"
+repository = "https://github.com/d-e-s-o/neovim-ctrl.git"
+readme = "README.md"
+categories = [
+  "command-line-utilities",
+  "text-editors",
+  "development-tools",
+  "os::unix-apis",
+]
+keywords = ["neovim", "tmux", "linux", "proc", "procfs"]
+description = """
+A program to find and interact with a Neovim instance running in a
+particular terminal.
+"""
