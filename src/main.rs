@@ -71,12 +71,15 @@ use std::borrow::Cow;
 use std::env::args_os;
 use std::ffi::CString;
 use std::ffi::OsStr;
+use std::fs::DirEntry;
+use std::fs::read_dir;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
 use std::mem::uninitialized;
 use std::os::unix::ffi::OsStringExt;
 use std::result::Result as StdResult;
+use std::str::FromStr;
 
 use libc::dev_t as Dev;
 use libc::mode_t as Mode;
@@ -86,6 +89,13 @@ use libc::stat64 as Stat64;
 use libc::stat64;
 
 
+/// The path to the /proc virtual file system.
+const PROC: &str = "/proc";
+
+
+// A process ID is represented as a u32 as per `process::Child::id`'s
+// return value.
+type Pid = u32;
 type Str = Cow<'static, str>;
 type Result<T> = StdResult<T, (Str, IoError)>;
 
@@ -164,6 +174,45 @@ where
   }
 }
 
+/// Check if an `OsStr` represents a PID.
+fn check_pid(s: &OsStr) -> Option<Pid> {
+  if let Some(pid) = s.to_str() {
+    Pid::from_str(pid).ok()
+  } else {
+    None
+  }
+}
+
+/// Retrieve an iterator over all process entries within /proc.
+fn proc_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
+  read_dir(PROC)
+    .ctx(|| format!("failed to read directory {}", PROC))
+    .map(|x| {
+      x.filter_map(|entry| {
+        match entry {
+          Ok(entry) => {
+            let path = entry.path();
+            if path.is_dir() {
+              // Check whether the entry we found could represent a
+              // process ID entry, which is a directory named as a
+              // number.
+              if let Some(pid) = check_pid(&entry.file_name()) {
+                Some(Ok((pid, entry)))
+              } else {
+                None
+              }
+            } else {
+              None
+            }
+          },
+          Err(err) => {
+            Some(Err(err).ctx(|| format!("failed to read directory entry below {}", PROC)))
+          },
+        }
+      })
+    })
+}
+
 
 mod int {
   use std::fmt::Debug;
@@ -233,5 +282,6 @@ fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
   let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
   let _terminal = check_tty(tty)?;
+  let _nvim = proc_entries()?;
   Ok(())
 }
