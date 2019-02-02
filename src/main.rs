@@ -92,6 +92,8 @@ use libc::stat64 as Stat64;
 use libc::stat64;
 
 
+/// The prefix of all Neovim binaries.
+const NVIM: &str = "nvim";
 /// The path to the /proc virtual file system.
 const PROC: &str = "/proc";
 /// The symlink to the entry for the current process in /proc.
@@ -294,6 +296,20 @@ fn filter_tty(entry: &DirEntry, tty: Dev) -> Result<bool> {
   }
 }
 
+fn filter_nvim(entry: &DirEntry) -> Result<bool> {
+  let mut path = entry.path();
+  path.push("exe");
+
+  read_link(&path)
+    .ctx(|| format!("failed to dereference {}", path.to_string_lossy()))
+    .map(|path| match path.file_name() {
+      // If the process' executable starts with the nvim prefix we
+      // take it.
+      Some(file) if file.to_str().map_or(false, |x| x.starts_with(NVIM)) => Ok(true),
+      _ => Ok(false),
+    })?
+}
+
 
 mod int {
   use std::fmt::Debug;
@@ -367,6 +383,8 @@ fn main() -> StdResult<(), int::ExitError> {
   let _nvim = proc_entries()?
     .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
     .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
+    .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)))
     .next();
+
   Ok(())
 }
