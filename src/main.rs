@@ -67,6 +67,7 @@
 //! `neovim-ctrl` is a program for finding and interacting with a Neovim
 //! instance running in the current terminal.
 
+use std::borrow::Cow;
 use std::env::args_os;
 use std::ffi::CString;
 use std::ffi::OsStr;
@@ -85,7 +86,33 @@ use libc::stat64 as Stat64;
 use libc::stat64;
 
 
-type Result<T> = StdResult<T, IoError>;
+type Str = Cow<'static, str>;
+type Result<T> = StdResult<T, (Str, IoError)>;
+
+
+trait WithCtx<T>
+where
+  Self: Sized,
+{
+  type E;
+
+  fn ctx<F, S>(self, ctx: F) -> StdResult<T, (Str, Self::E)>
+  where
+    F: Fn() -> S,
+    S: Into<Str>;
+}
+
+impl<T, E> WithCtx<T> for StdResult<T, E> {
+  type E = E;
+
+  fn ctx<F, S>(self, ctx: F) -> StdResult<T, (Str, Self::E)>
+  where
+    F: Fn() -> S,
+    S: Into<Str>,
+  {
+    self.map_err(|e| (ctx().into(), e))
+  }
+}
 
 
 /// Check the return value of a system call.
@@ -116,7 +143,8 @@ where
   let file = unsafe { CString::from_vec_unchecked(path_buf) };
   let result = unsafe { stat64(file.as_ptr(), &mut buf) };
 
-  check(result, -1)?;
+  check(result, -1)
+    .ctx(|| format!("stat64 failed for {}", path.to_string_lossy()))?;
 
   Ok(buf)
 }
@@ -132,6 +160,7 @@ where
     Ok(buf.st_rdev)
   } else {
     Err(IoError::new(ErrorKind::NotFound, "no controlling terminal found"))
+      .ctx(|| "failed to find TTY")
   }
 }
 
@@ -143,6 +172,7 @@ mod int {
   use std::fmt::Result;
 
   use super::IoError;
+  use super::Str;
 
   pub enum Error {
     UsageError,
@@ -170,17 +200,17 @@ mod int {
 
   // An error class for the purpose of being able to return a Result with
   // a sane error representation from `main`.
-  pub struct ExitError(pub Error);
+  pub struct ExitError(pub Option<Str>, pub Error);
 
-  impl From<IoError> for ExitError {
-    fn from(e: IoError) -> Self {
-      Self(e.into())
+  impl From<(Str, IoError)> for ExitError {
+    fn from(e: (Str, IoError)) -> Self {
+      Self(Some(e.0), e.1.into())
     }
   }
 
   impl From<Error> for ExitError {
     fn from(e: Error) -> Self {
-      Self(e)
+      Self(None, e)
     }
   }
 
@@ -190,7 +220,10 @@ mod int {
       // exactly like Display would, by printing a correctly formatted
       // error. This implementation is what is actually invoked when
       // displaying an error returned from `main`.
-      write!(f, "{}", self.0)
+      match &self.0 {
+        Some(ctx) => write!(f, "{}: {}", ctx, self.1),
+        None => write!(f, "{}", self.1),
+      }
     }
   }
 }
