@@ -73,11 +73,13 @@ use std::ffi::CString;
 use std::ffi::OsStr;
 use std::fs::DirEntry;
 use std::fs::read_dir;
+use std::fs::read_link;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
 use std::mem::uninitialized;
 use std::os::unix::ffi::OsStringExt;
+use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::str::FromStr;
 
@@ -91,6 +93,8 @@ use libc::stat64;
 
 /// The path to the /proc virtual file system.
 const PROC: &str = "/proc";
+/// The symlink to the entry for the current process in /proc.
+const PROC_SELF: &str = "/proc/self";
 
 
 // A process ID is represented as a u32 as per `process::Child::id`'s
@@ -98,6 +102,29 @@ const PROC: &str = "/proc";
 type Pid = u32;
 type Str = Cow<'static, str>;
 type Result<T> = StdResult<T, (Str, IoError)>;
+
+
+trait Filter<T, E>
+where
+  Self: Sized,
+{
+  fn filter<F>(&self, f: F) -> bool
+  where
+    F: FnMut(&T) -> bool;
+}
+
+impl<T, E> Filter<T, E> for StdResult<T, E> {
+  /// Filter based on a f.
+  fn filter<F>(&self, mut f: F) -> bool
+  where
+    F: FnMut(&T) -> bool,
+  {
+    match &self {
+      Ok(val) => f(val),
+      Err(_) => true,
+    }
+  }
+}
 
 
 trait WithCtx<T>
@@ -140,6 +167,11 @@ where
 /// Check if the given mode represents a character device.
 fn is_chardev(mode: Mode) -> bool {
   mode & S_IFMT == S_IFCHR
+}
+
+/// Check whether a path represents a terminal and retrieve its device descriptor.
+fn find_self() -> Result<PathBuf> {
+  read_link(PROC_SELF).ctx(|| format!("failed to dereference {}", PROC_SELF))
 }
 
 fn stat<P>(path: P) -> Result<Stat64>
@@ -213,6 +245,14 @@ fn proc_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
     })
 }
 
+/// A filter_map handler to filter out the self entry from a list of `DirEntry` objects.
+fn filter_self<P>(entry: &DirEntry, self_: P) -> bool
+where
+  P: AsRef<OsStr>,
+{
+  entry.path().file_name() != Some(self_.as_ref())
+}
+
 
 mod int {
   use std::fmt::Debug;
@@ -281,7 +321,11 @@ mod int {
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
   let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
+  let self_ = find_self()?;
   let _terminal = check_tty(tty)?;
-  let _nvim = proc_entries()?;
+  let _nvim = proc_entries()?
+    .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
+    .next();
+
   Ok(())
 }
