@@ -99,6 +99,11 @@ use libc::S_IFSOCK;
 use libc::stat64 as Stat64;
 use libc::stat64;
 
+use neovim_lib::CallError;
+use neovim_lib::Neovim;
+use neovim_lib::neovim::map_generic_error;
+use neovim_lib::Session;
+use neovim_lib::Value;
 
 /// The prefix of all Neovim binaries.
 const NVIM: &str = "nvim";
@@ -424,10 +429,33 @@ fn map_unix_socket(inode: Inode) -> Option<Result<PathBuf>> {
     })
 }
 
+/// Feed keys to the Neovim instance represented by the given session.
+fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<(), (Str, CallError)> {
+  session.start_event_loop();
+
+  let mut nvim = Neovim::new(session);
+  let args = vec![
+    Value::Binary(keys),
+    // "m" is the default mode for nvim_feedkeys in which remaps are
+    // applied as usual. See the reference for more information:
+    // https://neovim.io/doc/user/eval.html#feedkeys()
+    Value::String("m".into()),
+    Value::Boolean(false),
+  ];
+  let _ = nvim
+    .session
+    .call("nvim_feedkeys", args)
+    .map_err(map_generic_error)
+    .ctx(|| "failed to feed keys to Neovim".to_string())?;
+
+  Ok(())
+}
+
 
 /// An enum representing the different commands the program supports.
 enum Command {
   FindSocket,
+  ChangeWindow(Vec<u8>),
 }
 
 
@@ -437,12 +465,14 @@ mod int {
   use std::fmt::Formatter;
   use std::fmt::Result;
 
+  use super::CallError;
   use super::IoError;
   use super::Str;
 
   pub enum Error {
     UsageError,
     IoError(IoError),
+    NeovimError(CallError),
   }
 
   impl Display for Error {
@@ -450,9 +480,10 @@ mod int {
       match self {
         Error::UsageError => write!(
           f,
-          "Usage: nvim-ctrl find-socket tty"
+          "Usage: nvim-ctrl {{find-socket,change-window}} tty [keys]"
         ),
         Error::IoError(err) => write!(f, "{}", err),
+        Error::NeovimError(err) => write!(f, "{}", err),
       }
     }
   }
@@ -463,6 +494,12 @@ mod int {
     }
   }
 
+  impl From<CallError> for Error {
+    fn from(e: CallError) -> Self {
+      Error::NeovimError(e)
+    }
+  }
+
 
   // An error class for the purpose of being able to return a Result with
   // a sane error representation from `main`.
@@ -470,6 +507,12 @@ mod int {
 
   impl From<(Str, IoError)> for ExitError {
     fn from(e: (Str, IoError)) -> Self {
+      Self(Some(e.0), e.1.into())
+    }
+  }
+
+  impl From<(Str, CallError)> for ExitError {
+    fn from(e: (Str, CallError)) -> Self {
       Self(Some(e.0), e.1.into())
     }
   }
@@ -499,9 +542,12 @@ fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
   let cmd = argv.next().ok_or_else(|| int::Error::UsageError)?;
   let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
-
   let cmd = match cmd.to_str().ok_or_else(|| int::Error::UsageError)? {
     "find-socket" => Ok(Command::FindSocket),
+    "change-window" => {
+      let keys = argv.next().ok_or_else(|| int::Error::UsageError)?;
+      Ok(Command::ChangeWindow(keys.into_vec()))
+    },
     _ => Err(int::Error::UsageError),
   }?;
 
@@ -534,6 +580,13 @@ fn main() -> StdResult<(), int::ExitError> {
             .ctx(|| "failed write socket to stdout".to_string())?;
           Ok(())
         },
+        Command::ChangeWindow(keys) => {
+          let session = Session::new_unix_socket(&socket)
+            .ctx(|| format!("failed to establish Neovim session via {}", socket.to_string_lossy()))?;
+
+          feed_keys(session, keys)?;
+          Ok(())
+        }
       }
     } else {
       Err(int::ExitError(
