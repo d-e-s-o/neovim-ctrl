@@ -80,7 +80,10 @@ use std::io::BufReader;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Result as IoResult;
+use std::io::stdout;
+use std::io::Write;
 use std::mem::uninitialized;
+use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
 use std::result::Result as StdResult;
@@ -494,7 +497,7 @@ fn main() -> StdResult<(), int::ExitError> {
   // argue it did not go too well :-)
   let self_ = find_self()?;
   let terminal = check_tty(tty)?;
-  let _nvim = proc_entries()?
+  let nvim = proc_entries()?
     .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
     .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
     .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)))
@@ -502,5 +505,30 @@ fn main() -> StdResult<(), int::ExitError> {
     .map(|x| x.map(|(x0, x1)| (x0, x1.filter_map(|x| x.filter_map_flat(map_unix_socket)))))
     .next();
 
-  Ok(())
+  if let Some(nvim) = nvim {
+    let (pid, mut sockets) = nvim?;
+
+    if let Some(socket) = sockets.next() {
+      let socket = socket?;
+
+      stdout()
+        .write_all(socket.as_os_str().as_bytes())
+        .ctx(|| format!("failed write socket to stdout"))?;
+      Ok(())
+    } else {
+      Err(int::ExitError(
+        None,
+        IoError::new(
+          ErrorKind::NotFound,
+          format!("no UNIX domain socket found for process {}", pid),
+        )
+        .into(),
+      ))?
+    }
+  } else {
+    Err(int::ExitError(
+      None,
+      IoError::new(ErrorKind::NotFound, "no neovim process found").into(),
+    ))?
+  }
 }
