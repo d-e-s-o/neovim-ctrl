@@ -425,6 +425,12 @@ fn map_unix_socket(inode: Inode) -> Option<Result<PathBuf>> {
 }
 
 
+/// An enum representing the different commands the program supports.
+enum Command {
+  FindSocket,
+}
+
+
 mod int {
   use std::fmt::Debug;
   use std::fmt::Display;
@@ -444,7 +450,7 @@ mod int {
       match self {
         Error::UsageError => write!(
           f,
-          "Usage: nvim-ctrl tty"
+          "Usage: nvim-ctrl find-socket tty"
         ),
         Error::IoError(err) => write!(f, "{}", err),
       }
@@ -491,7 +497,17 @@ mod int {
 
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
+  let cmd = argv.next().ok_or_else(|| int::Error::UsageError)?;
   let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
+
+  let cmd = match cmd.to_str().ok_or_else(|| int::Error::UsageError)? {
+    "find-socket" => Ok(Command::FindSocket),
+    _ => Err(int::Error::UsageError),
+  }?;
+
+  if argv.next().is_some() {
+    Err(int::Error::UsageError)?
+  }
 
   // Yes, iterators all the way down. That was an experiment. One could
   // argue it did not go too well :-)
@@ -511,10 +527,14 @@ fn main() -> StdResult<(), int::ExitError> {
     if let Some(socket) = sockets.next() {
       let socket = socket?;
 
-      stdout()
-        .write_all(socket.as_os_str().as_bytes())
-        .ctx(|| format!("failed write socket to stdout"))?;
-      Ok(())
+      match cmd {
+        Command::FindSocket => {
+          stdout()
+            .write_all(socket.as_os_str().as_bytes())
+            .ctx(|| "failed write socket to stdout".to_string())?;
+          Ok(())
+        },
+      }
     } else {
       Err(int::ExitError(
         None,
