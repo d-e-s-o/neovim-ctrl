@@ -102,6 +102,7 @@ use libc::stat64;
 use neovim_lib::CallError;
 use neovim_lib::Neovim;
 use neovim_lib::neovim::map_generic_error;
+use neovim_lib::NeovimApi;
 use neovim_lib::Session;
 use neovim_lib::Value;
 
@@ -429,11 +430,20 @@ fn map_unix_socket(inode: Inode) -> Option<Result<PathBuf>> {
     })
 }
 
+enum Status {
+  Changed,
+  Unchanged,
+}
+
 /// Feed keys to the Neovim instance represented by the given session.
-fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<(), (Str, CallError)> {
+fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, CallError)> {
   session.start_event_loop();
 
   let mut nvim = Neovim::new(session);
+  let before = nvim
+    .call_function("nvim_get_current_win", vec![])
+    .ctx(|| "failed to retrieve currently active window".to_string())?;
+
   let args = vec![
     Value::Binary(keys),
     // "m" is the default mode for nvim_feedkeys in which remaps are
@@ -448,7 +458,15 @@ fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<(), (Str, CallErr
     .map_err(map_generic_error)
     .ctx(|| "failed to feed keys to Neovim".to_string())?;
 
-  Ok(())
+  let after = nvim
+    .call_function("nvim_get_current_win", vec![])
+    .ctx(|| "failed to retrieve currently active window".to_string())?;
+
+  if before != after {
+    Ok(Status::Changed)
+  } else {
+    Ok(Status::Unchanged)
+  }
 }
 
 
@@ -471,6 +489,7 @@ mod int {
 
   pub enum Error {
     UsageError,
+    NoChangeError,
     IoError(IoError),
     NeovimError(CallError),
   }
@@ -482,6 +501,7 @@ mod int {
           f,
           "Usage: nvim-ctrl {{find-socket,change-window}} tty [keys]"
         ),
+        Error::NoChangeError => write!(f, "nothing changed"),
         Error::IoError(err) => write!(f, "{}", err),
         Error::NeovimError(err) => write!(f, "{}", err),
       }
@@ -584,8 +604,10 @@ fn main() -> StdResult<(), int::ExitError> {
           let session = Session::new_unix_socket(&socket)
             .ctx(|| format!("failed to establish Neovim session via {}", socket.to_string_lossy()))?;
 
-          feed_keys(session, keys)?;
-          Ok(())
+          match feed_keys(session, keys)? {
+            Status::Changed => Ok(()),
+            Status::Unchanged => Err(int::Error::NoChangeError)?,
+          }
         }
       }
     } else {
