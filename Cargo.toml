@@ -19,6 +19,9 @@ A program to find and interact with a Neovim instance running in a
 particular terminal.
 """
 
+[badges]
+gitlab = { repository = "d-e-s-o/neovim-ctrl", branch = "master" }
+
 [profile.release]
 opt-level = 3
 lto = true
