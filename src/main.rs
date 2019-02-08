@@ -442,7 +442,7 @@ fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, Cal
   let mut nvim = Neovim::new(session);
   let before = nvim
     .call_function("nvim_get_current_win", vec![])
-    .ctx(|| "failed to retrieve currently active window".to_string())?;
+    .ctx(|| "failed to retrieve currently active window")?;
 
   let args = vec![
     Value::Binary(keys),
@@ -456,11 +456,11 @@ fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, Cal
     .session
     .call("nvim_feedkeys", args)
     .map_err(map_generic_error)
-    .ctx(|| "failed to feed keys to Neovim".to_string())?;
+    .ctx(|| "failed to feed keys to Neovim")?;
 
   let after = nvim
     .call_function("nvim_get_current_win", vec![])
-    .ctx(|| "failed to retrieve currently active window".to_string())?;
+    .ctx(|| "failed to retrieve currently active window")?;
 
   if before != after {
     Ok(Status::Changed)
@@ -597,7 +597,7 @@ fn main() -> StdResult<(), int::ExitError> {
         Command::FindSocket => {
           stdout()
             .write_all(socket.as_os_str().as_bytes())
-            .ctx(|| "failed write socket to stdout".to_string())?;
+            .ctx(|| "failed write socket to stdout")?;
           Ok(())
         },
         Command::ChangeWindow(keys) => {

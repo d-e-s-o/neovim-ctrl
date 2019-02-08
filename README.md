@@ -5,6 +5,8 @@
 neovim-ctrl
 ===========
 
+- [Changelog](CHANGELOG.md)
+
 **neovim-ctrl** is a program to find and interact with a Neovim instance
 running in a particular terminal.
 
