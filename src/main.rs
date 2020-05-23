@@ -78,7 +78,7 @@ use std::io::ErrorKind;
 use std::io::Result as IoResult;
 use std::io::stdout;
 use std::io::Write;
-use std::mem::uninitialized;
+use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
 use std::path::PathBuf;
@@ -240,17 +240,17 @@ fn stat<P>(path: P) -> Result<Stat64>
 where
   P: AsRef<OsStr>,
 {
-  let mut buf = unsafe { uninitialized() };
+  let mut buf = MaybeUninit::<Stat64>::uninit();
   let path = path.as_ref();
   let path_buf = path.to_os_string().into_vec();
   // We need to ensure NUL termination when performing the system call.
   let file = unsafe { CString::from_vec_unchecked(path_buf) };
-  let result = unsafe { stat64(file.as_ptr(), &mut buf) };
+  let result = unsafe { stat64(file.as_ptr(), buf.as_mut_ptr()) };
 
   check(result, -1)
     .ctx(|| format!("stat64 failed for {}", path.to_string_lossy()))?;
 
-  Ok(buf)
+  Ok(unsafe { buf.assume_init() })
 }
 
 /// Check whether a path represents a terminal and retrieve its device descriptor.
