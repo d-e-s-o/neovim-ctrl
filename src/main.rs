@@ -75,6 +75,7 @@ use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
+use std::io::Read;
 use std::io::Result as IoResult;
 use std::io::stdout;
 use std::io::Write;
@@ -350,6 +351,30 @@ fn filter_nvim(entry: &DirEntry) -> Result<bool> {
     })?
 }
 
+fn filter_non_stopped(entry: &DirEntry) -> Result<bool> {
+  let mut path = entry.path();
+  path.push("stat");
+
+  let mut file = File::open(&path).ctx(|| format!("failed to open {}", path.to_string_lossy()))?;
+
+  // 512 bytes should be more than enough to get to the status field.
+  // Before it are only the pid and the file name of the executable. See
+  // proc(5).
+  let mut buf = [0u8; 512];
+  let n = file
+    .read(&mut buf)
+    .ctx(|| format!("failed to read from {}", path.to_string_lossy()))?;
+
+  // One can only hope that the file name does not contain a space
+  // or...well, just screw this brain dead API.
+  match buf[..n].split(|c| *c == b' ').nth(2) {
+    // If the process has been stopped (or is being traced) we don't
+    // want to interact with it.
+    Some([b'T']) => Ok(false),
+    _ => Ok(true),
+  }
+}
+
 fn is_socket(mode: Mode) -> bool {
   mode & S_IFMT == S_IFSOCK
 }
@@ -579,6 +604,7 @@ fn main() -> StdResult<(), int::ExitError> {
     .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
     .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
     .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)))
+    .filter_map(|x| x.filter_flat(|x| filter_non_stopped(&x.1)))
     .map(|x| x.map_flat(|(x0, x1)| map_socket_inodes(x1).map(|x| (x0, x))))
     .map(|x| x.map(|(x0, x1)| (x0, x1.filter_map(|x| x.filter_map_flat(map_unix_socket)))))
     .next();
