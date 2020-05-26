@@ -1,5 +1,5 @@
-Unreleased
-----------
+0.1.1
+-----
 - Ignore `Neovim` processes in stopped state
 - Replaced usage of `std::mem::uninitialized` with
   `std::mem::MaybeUninit`
