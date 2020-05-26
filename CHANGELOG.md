@@ -1,3 +1,8 @@
+Unreleased
+----------
+- Bumped minimum required Rust version to `1.36.0`
+
+
 0.1.1
 -----
 - Ignore `Neovim` processes in stopped state
