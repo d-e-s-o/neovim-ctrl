@@ -67,6 +67,7 @@ use std::borrow::Cow;
 use std::env::args_os;
 use std::ffi::CString;
 use std::ffi::OsStr;
+use std::ffi::OsString;
 use std::fs::DirEntry;
 use std::fs::File;
 use std::fs::read_dir;
@@ -232,9 +233,12 @@ fn is_chardev(mode: Mode) -> bool {
   mode & S_IFMT == S_IFCHR
 }
 
-/// Check whether a path represents a terminal and retrieve its device descriptor.
-fn find_self() -> Result<PathBuf> {
-  read_link(PROC_SELF).ctx(|| format!("failed to dereference {}", PROC_SELF))
+/// Find PID "file name" pointed to by `/proc/self`.
+fn find_self() -> Result<OsString> {
+  let dst = read_link(PROC_SELF).ctx(|| format!("failed to dereference {}", PROC_SELF))?;
+  // The link effectively just points to a PID, not an entire path. So
+  // it makes sense to treat the result as a mere `OsString`.
+  Ok(dst.into_os_string())
 }
 
 fn stat<P>(path: P) -> Result<Stat64>
