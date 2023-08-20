@@ -1,7 +1,7 @@
 // main.rs
 
 // *************************************************************************
-// * Copyright (C) 2019-2020 Daniel Mueller (deso@posteo.net)              *
+// * Copyright (C) 2019-2023 Daniel Mueller (deso@posteo.net)              *
 // *                                                                       *
 // * This program is free software: you can redistribute it and/or modify  *
 // * it under the terms of the GNU General Public License as published by  *
@@ -291,11 +291,7 @@ fn proc_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
               // Check whether the entry we found could represent a
               // process ID entry, which is a directory named as a
               // number.
-              if let Some(pid) = check_pid(&entry.file_name()) {
-                Some(Ok((pid, entry)))
-              } else {
-                None
-              }
+              check_pid(&entry.file_name()).map(|pid| Ok((pid, entry)))
             } else {
               None
             }
