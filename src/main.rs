@@ -83,6 +83,7 @@ use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::ffi::OsStringExt;
+use std::path::Path;
 use std::path::PathBuf;
 use std::result::Result as StdResult;
 use std::str::FromStr;
@@ -243,11 +244,11 @@ fn find_self() -> Result<OsString> {
 
 fn stat<P>(path: P) -> Result<Stat64>
 where
-  P: AsRef<OsStr>,
+  P: AsRef<Path>,
 {
   let mut buf = MaybeUninit::<Stat64>::uninit();
   let path = path.as_ref();
-  let path_buf = path.to_os_string().into_vec();
+  let path_buf = path.as_os_str().to_os_string().into_vec();
   // We need to ensure NUL termination when performing the system call.
   let file = unsafe { CString::from_vec_unchecked(path_buf) };
   let result = unsafe { stat64(file.as_ptr(), buf.as_mut_ptr()) };
@@ -261,7 +262,7 @@ where
 /// Check whether a path represents a terminal and retrieve its device descriptor.
 fn check_tty<P>(path: P) -> Result<Dev>
 where
-  P: AsRef<OsStr>,
+  P: AsRef<Path>,
 {
   let buf = stat(path)?;
 
@@ -308,7 +309,7 @@ fn proc_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
     })
 }
 
-/// A filter_map handler to filter out the self entry from a list of `DirEntry` objects.
+/// A filter_handler to filter out the self entry from a list of `DirEntry` objects.
 fn filter_self<P>(entry: &DirEntry, self_: P) -> bool
 where
   P: AsRef<OsStr>,
@@ -381,7 +382,7 @@ fn is_socket(mode: Mode) -> bool {
 
 fn check_socket<P>(path: P) -> Result<Inode>
 where
-  P: AsRef<OsStr>,
+  P: AsRef<Path>,
 {
   let path = path.as_ref();
   let buf = stat(path)?;
