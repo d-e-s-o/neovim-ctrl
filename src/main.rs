@@ -254,7 +254,7 @@ where
   let result = unsafe { stat64(file.as_ptr(), buf.as_mut_ptr()) };
 
   check(result, -1)
-    .ctx(|| format!("stat64 failed for {}", path.to_string_lossy()))?;
+    .ctx(|| format!("stat64 failed for {}", path.display()))?;
 
   Ok(unsafe { buf.assume_init() })
 }
@@ -343,7 +343,7 @@ fn filter_nvim(entry: &DirEntry) -> Result<bool> {
   path.push("exe");
 
   read_link(&path)
-    .ctx(|| format!("failed to dereference {}", path.to_string_lossy()))
+    .ctx(|| format!("failed to dereference {}", path.display()))
     .map(|path| match path.file_name() {
       // If the process' executable starts with the nvim prefix we
       // take it.
@@ -356,7 +356,7 @@ fn filter_non_stopped(entry: &DirEntry) -> Result<bool> {
   let mut path = entry.path();
   path.push("stat");
 
-  let mut file = File::open(&path).ctx(|| format!("failed to open {}", path.to_string_lossy()))?;
+  let mut file = File::open(&path).ctx(|| format!("failed to open {}", path.display()))?;
 
   // 512 bytes should be more than enough to get to the status field.
   // Before it are only the pid and the file name of the executable. See
@@ -364,7 +364,7 @@ fn filter_non_stopped(entry: &DirEntry) -> Result<bool> {
   let mut buf = [0u8; 512];
   let n = file
     .read(&mut buf)
-    .ctx(|| format!("failed to read from {}", path.to_string_lossy()))?;
+    .ctx(|| format!("failed to read from {}", path.display()))?;
 
   // One can only hope that the file name does not contain a space
   // or...well, just screw this brain dead API.
@@ -391,7 +391,7 @@ where
     Ok(buf.st_ino)
   } else {
     Err(IoError::new(ErrorKind::NotFound, "no socket found"))
-      .ctx(|| format!("file {} is not a socket", path.to_string_lossy()))
+      .ctx(|| format!("file {} is not a socket", path.display()))
   }
 }
 
@@ -401,7 +401,7 @@ fn map_socket_inodes(entry: DirEntry) -> Result<impl Iterator<Item = Result<Inod
   path.push("fd");
 
   read_dir(&path)
-    .ctx(|| format!("failed to read directory {}", path.to_string_lossy()))
+    .ctx(|| format!("failed to read directory {}", path.display()))
     .map(move |x| {
       x.filter_map(move |entry| match entry {
         Ok(entry) => {
@@ -415,7 +415,7 @@ fn map_socket_inodes(entry: DirEntry) -> Result<impl Iterator<Item = Result<Inod
         Err(err) => Some(Err(err).ctx(|| {
           format!(
             "failed to read directory entry below {}",
-            path.to_string_lossy(),
+            path.display(),
           )
         })),
       })
@@ -625,7 +625,7 @@ fn main() -> StdResult<(), int::ExitError> {
         },
         Command::ChangeWindow(keys) => {
           let session = Session::new_unix_socket(&socket)
-            .ctx(|| format!("failed to establish Neovim session via {}", socket.to_string_lossy()))?;
+            .ctx(|| format!("failed to establish Neovim session via {}", socket.display()))?;
 
           match feed_keys(session, keys)? {
             Status::Changed => Ok(()),
