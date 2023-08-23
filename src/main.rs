@@ -510,35 +510,35 @@ mod int {
   use super::Str;
 
   pub enum Error {
-    UsageError,
-    NoChangeError,
-    IoError(IoError),
-    NeovimError(CallError),
+    Usage,
+    NoChange,
+    Io(IoError),
+    Neovim(CallError),
   }
 
   impl Display for Error {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result {
       match self {
-        Error::UsageError => write!(
+        Error::Usage => write!(
           f,
           "Usage: nvim-ctrl {{find-socket,change-window}} tty [keys]"
         ),
-        Error::NoChangeError => write!(f, "nothing changed"),
-        Error::IoError(err) => write!(f, "{}", err),
-        Error::NeovimError(err) => write!(f, "{}", err),
+        Error::NoChange => write!(f, "nothing changed"),
+        Error::Io(err) => write!(f, "{}", err),
+        Error::Neovim(err) => write!(f, "{}", err),
       }
     }
   }
 
   impl From<IoError> for Error {
     fn from(e: IoError) -> Self {
-      Error::IoError(e)
+      Error::Io(e)
     }
   }
 
   impl From<CallError> for Error {
     fn from(e: CallError) -> Self {
-      Error::NeovimError(e)
+      Error::Neovim(e)
     }
   }
 
@@ -582,19 +582,19 @@ mod int {
 
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
-  let cmd = argv.next().ok_or_else(|| int::Error::UsageError)?;
-  let tty = argv.next().ok_or_else(|| int::Error::UsageError)?;
-  let cmd = match cmd.to_str().ok_or_else(|| int::Error::UsageError)? {
+  let cmd = argv.next().ok_or_else(|| int::Error::Usage)?;
+  let tty = argv.next().ok_or_else(|| int::Error::Usage)?;
+  let cmd = match cmd.to_str().ok_or_else(|| int::Error::Usage)? {
     "find-socket" => Ok(Command::FindSocket),
     "change-window" => {
-      let keys = argv.next().ok_or_else(|| int::Error::UsageError)?;
+      let keys = argv.next().ok_or_else(|| int::Error::Usage)?;
       Ok(Command::ChangeWindow(keys.into_vec()))
     },
-    _ => Err(int::Error::UsageError),
+    _ => Err(int::Error::Usage),
   }?;
 
   if argv.next().is_some() {
-    Err(int::Error::UsageError)?
+    Err(int::Error::Usage)?
   }
 
   // Yes, iterators all the way down. That was an experiment. One could
@@ -629,7 +629,7 @@ fn main() -> StdResult<(), int::ExitError> {
 
           match feed_keys(session, keys)? {
             Status::Changed => Ok(()),
-            Status::Unchanged => Err(int::Error::NoChangeError)?,
+            Status::Unchanged => Err(int::Error::NoChange)?,
           }
         }
       }
