@@ -23,7 +23,6 @@
   future_incompatible,
   illegal_floating_point_literal_pattern,
   improper_ctypes,
-  intra_doc_link_resolution_failure,
   late_bound_lifetime_arguments,
   missing_copy_implementations,
   missing_debug_implementations,
@@ -58,6 +57,7 @@
   unused_results,
   where_clauses_object_safety,
   while_true,
+  rustdoc::broken_intra_doc_links
 )]
 
 //! `neovim-ctrl` is a program for finding and interacting with a Neovim
