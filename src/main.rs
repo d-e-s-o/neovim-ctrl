@@ -38,7 +38,6 @@
   renamed_and_removed_lints,
   rust_2018_compatibility,
   rust_2018_idioms,
-  safe_packed_borrows,
   stable_features,
   trivial_bounds,
   trivial_numeric_casts,
