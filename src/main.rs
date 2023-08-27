@@ -67,17 +67,17 @@ use std::env::args_os;
 use std::ffi::CString;
 use std::ffi::OsStr;
 use std::ffi::OsString;
-use std::fs::DirEntry;
-use std::fs::File;
 use std::fs::read_dir;
 use std::fs::read_link;
+use std::fs::DirEntry;
+use std::fs::File;
+use std::io::stdout;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::io::Error as IoError;
 use std::io::ErrorKind;
 use std::io::Read;
 use std::io::Result as IoResult;
-use std::io::stdout;
 use std::io::Write;
 use std::mem::MaybeUninit;
 use std::os::unix::ffi::OsStrExt;
@@ -88,18 +88,18 @@ use std::result::Result as StdResult;
 use std::str::FromStr;
 
 use libc::dev_t as Dev;
-use libc::ENXIO;
 use libc::ino64_t as Inode;
 use libc::mode_t as Mode;
+use libc::stat64 as Stat64;
+use libc::stat64;
+use libc::ENXIO;
 use libc::S_IFCHR;
 use libc::S_IFMT;
 use libc::S_IFSOCK;
-use libc::stat64 as Stat64;
-use libc::stat64;
 
+use neovim_lib::neovim::map_generic_error;
 use neovim_lib::CallError;
 use neovim_lib::Neovim;
-use neovim_lib::neovim::map_generic_error;
 use neovim_lib::NeovimApi;
 use neovim_lib::Session;
 use neovim_lib::Value;
@@ -252,8 +252,7 @@ where
   let file = unsafe { CString::from_vec_unchecked(path_buf) };
   let result = unsafe { stat64(file.as_ptr(), buf.as_mut_ptr()) };
 
-  check(result, -1)
-    .ctx(|| format!("stat64 failed for {}", path.display()))?;
+  check(result, -1).ctx(|| format!("stat64 failed for {}", path.display()))?;
 
   Ok(unsafe { buf.assume_init() })
 }
@@ -268,8 +267,11 @@ where
   if is_chardev(buf.st_mode) {
     Ok(buf.st_rdev)
   } else {
-    Err(IoError::new(ErrorKind::NotFound, "no controlling terminal found"))
-      .ctx(|| "failed to find TTY")
+    Err(IoError::new(
+      ErrorKind::NotFound,
+      "no controlling terminal found",
+    ))
+    .ctx(|| "failed to find TTY")
   }
 }
 
@@ -326,14 +328,15 @@ fn filter_tty(entry: &DirEntry, tty: Dev) -> Result<bool> {
     Err(err) => {
       // Skip all processes that do not have a controlling
       // terminal.
-      if err.1.kind() == ErrorKind::NotFound ||
-         err.1.kind() == ErrorKind::PermissionDenied ||
-         err.1.raw_os_error() == Some(ENXIO) {
+      if err.1.kind() == ErrorKind::NotFound
+        || err.1.kind() == ErrorKind::PermissionDenied
+        || err.1.raw_os_error() == Some(ENXIO)
+      {
         Ok(false)
       } else {
         Err(err)
       }
-    }
+    },
   }
 }
 
@@ -411,12 +414,9 @@ fn map_socket_inodes(entry: DirEntry) -> Result<impl Iterator<Item = Result<Inod
             None
           }
         },
-        Err(err) => Some(Err(err).ctx(|| {
-          format!(
-            "failed to read directory entry below {}",
-            path.display(),
-          )
-        })),
+        Err(err) => {
+          Some(Err(err).ctx(|| format!("failed to read directory entry below {}", path.display(),)))
+        },
       })
     })
 }
@@ -623,14 +623,18 @@ fn main() -> StdResult<(), int::ExitError> {
           Ok(())
         },
         Command::ChangeWindow(keys) => {
-          let session = Session::new_unix_socket(&socket)
-            .ctx(|| format!("failed to establish Neovim session via {}", socket.display()))?;
+          let session = Session::new_unix_socket(&socket).ctx(|| {
+            format!(
+              "failed to establish Neovim session via {}",
+              socket.display()
+            )
+          })?;
 
           match feed_keys(session, keys)? {
             Status::Changed => Ok(()),
             Status::Unchanged => Err(int::Error::NoChange)?,
           }
-        }
+        },
       }
     } else {
       Err(int::ExitError(
