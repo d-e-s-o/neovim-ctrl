@@ -1,4 +1,3 @@
-[![pipeline](https://gitlab.com/d-e-s-o/neovim-ctrl/badges/main/pipeline.svg)](https://gitlab.com/d-e-s-o/neovim-ctrl/commits/main)
 [![crates.io](https://img.shields.io/crates/v/neovim-ctrl.svg)](https://crates.io/crates/neovim-ctrl)
 [![rustc](https://img.shields.io/badge/rustc-1.36+-blue.svg)](https://blog.rust-lang.org/2019/07/04/Rust-1.36.0.html)
 
