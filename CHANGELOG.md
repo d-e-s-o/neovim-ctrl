@@ -1,5 +1,6 @@
 Unreleased
 ----------
+- Switched to using GitHub Actions as CI provider
 - Bumped minimum required Rust version to `1.36.0`
 
 
