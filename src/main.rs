@@ -344,14 +344,22 @@ fn filter_nvim(entry: &DirEntry) -> Result<bool> {
   let mut path = entry.path();
   path.push("exe");
 
-  read_link(&path)
-    .ctx(|| format!("failed to dereference {}", path.display()))
-    .map(|path| match path.file_name() {
-      // If the process' executable starts with the nvim prefix we
-      // take it.
-      Some(file) if file.to_str().map_or(false, |x| x.starts_with(NVIM)) => Ok(true),
-      _ => Ok(false),
-    })?
+  match read_link(&path) {
+    Ok(path) => {
+      match path.file_name() {
+        // If the process' executable starts with the nvim prefix we
+        // take it.
+        Some(file) if file.to_str().map_or(false, |x| x.starts_with(NVIM)) => Ok(true),
+        _ => Ok(false),
+      }
+    },
+    Err(err) if err.kind() == ErrorKind::PermissionDenied => {
+      // We could be working with an entry which we have no permission
+      // to access. Ignore it.
+      Ok(false)
+    },
+    Err(err) => Err(err).ctx(|| format!("failed to dereference {}", path.display())),
+  }
 }
 
 fn filter_non_stopped(entry: &DirEntry) -> Result<bool> {
