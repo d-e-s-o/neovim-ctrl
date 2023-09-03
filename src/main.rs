@@ -359,6 +359,12 @@ fn filter_nvim(entry: &DirEntry) -> Result<bool> {
       // to access. Ignore it.
       Ok(false)
     },
+    Err(err) if err.kind() == ErrorKind::NotFound => {
+      // We have seen cases where some root owned process caused a
+      // `NotFound` rather than a permission error, unconditionally.
+      // Ignore that as well.
+      Ok(false)
+    },
     Err(err) => Err(err).ctx(|| format!("failed to dereference {}", path.display())),
   }
 }
