@@ -17,6 +17,7 @@
 // * along with this program.  If not, see <http://www.gnu.org/licenses/>. *
 // *************************************************************************
 
+#![allow(clippy::let_unit_value)]
 #![warn(
   bad_style,
   dead_code,
@@ -386,6 +387,34 @@ fn filter_non_stopped(entry: &DirEntry) -> Result<bool> {
   }
 }
 
+
+/// A filter_handler to filter out all entries not having `parent_pid`
+/// as the parent process from a list of `DirEntry` objects.
+fn filter_by_parent(entry: &DirEntry, parent_pid: Pid) -> Result<bool> {
+  let mut path = entry.path();
+  let () = path.push("status");
+
+  let file = File::open(&path).ctx(|| format!("failed to open {}", path.display()))?;
+
+  let lines = BufReader::new(file).lines();
+
+  for result in lines {
+    let line = result.ctx(|| format!("error while reading lines from {}", path.display()))?;
+    if let Some(line) = line.strip_prefix("PPid:") {
+      let line = line.trim();
+      let pid = Pid::from_str(line)
+        .map_err(|err| IoError::new(ErrorKind::InvalidInput, format!("{}", err)))
+        .ctx(|| format!("failed to parse PPid from {}", path.display()))?;
+      if pid == parent_pid {
+        return Ok(true);
+      }
+    }
+  }
+
+  Ok(false)
+}
+
+
 fn is_socket(mode: Mode) -> bool {
   mode & S_IFMT == S_IFSOCK
 }
@@ -587,10 +616,22 @@ mod int {
 }
 
 
+/// Retrieve an iterator over all Neovim proc entries.
+fn nvim_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
+  let self_ = find_self()?;
+  let nvims = proc_entries()?
+    .filter(move |x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
+    .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)));
+
+  Ok(nvims)
+}
+
+
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
   let cmd = argv.next().ok_or_else(|| int::Error::Usage)?;
   let tty = argv.next().ok_or_else(|| int::Error::Usage)?;
+  let tty = Path::new(&tty);
   let cmd = match cmd.to_str().ok_or_else(|| int::Error::Usage)? {
     "find-socket" => Ok(Command::FindSocket),
     "change-window" => {
@@ -604,20 +645,42 @@ fn main() -> StdResult<(), int::ExitError> {
     Err(int::Error::Usage)?
   }
 
-  // Yes, iterators all the way down. That was an experiment. One could
-  // argue it did not go too well :-)
-  let self_ = find_self()?;
+  let mut nvims = nvim_entries()?;
+
+  // Identifying the socket process is a two step process. First we find
+  // the Neovim instance attached to the provided terminal.
   let terminal = check_tty(tty)?;
-  let nvim = proc_entries()?
-    .filter(|x| x.as_ref().filter(|y| filter_self(&y.1, &self_)))
-    .filter_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
-    .filter_map(|x| x.filter_flat(|x| filter_nvim(&x.1)))
+  let parent = nvims
+    .by_ref()
+    .find_map(|x| x.filter_flat(|x| filter_tty(&x.1, terminal)))
+    .ok_or_else(|| {
+      int::ExitError(
+        None,
+        IoError::new(
+          ErrorKind::NotFound,
+          format!("failed to find nvim process for {}", tty.display()),
+        )
+        .into(),
+      )
+    })??;
+
+  // Second we look for the child process of `parent`.
+  let child = nvims
+    // In all likelihood, the child will just be the process with the
+    // next PID, so we just continue the search there. However, that's
+    // just a property of how process IDs are likely to be assigned.
+    // Worst case (if that ever changes), we have to scan the entire
+    // process list again.
+    // Yes, iterators all the way down. That was an experiment. One could
+    // argue it did not go too well :-)
+    .chain(nvim_entries()?)
+    .filter_map(|x| x.filter_flat(|x| filter_by_parent(&x.1, parent.0)))
     .filter_map(|x| x.filter_flat(|x| filter_non_stopped(&x.1)))
     .map(|x| x.map_flat(|(x0, x1)| map_socket_inodes(x1).map(|x| (x0, x))))
     .map(|x| x.map(|(x0, x1)| (x0, x1.filter_map(|x| x.filter_map_flat(map_unix_socket)))))
     .next();
 
-  if let Some(nvim) = nvim {
+  if let Some(nvim) = child {
     let (pid, mut sockets) = nvim?;
 
     if let Some(socket) = sockets.next() {

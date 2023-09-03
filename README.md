@@ -8,7 +8,7 @@ neovim-ctrl
 - [Changelog](CHANGELOG.md)
 
 **neovim-ctrl** is a program to find and interact with a Neovim instance
-running in a particular terminal.
+running in a particular terminal. It works with Neovim 0.9.0 and higher.
 
 The program supports two commands:
 - `find-socket` to discover the Unix domain socket of a running Neovim
