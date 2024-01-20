@@ -1,5 +1,5 @@
-Unreleased
-----------
+0.2.0
+-----
 - Adjusted logic to work with Neovim 0.9.0 and higher
 - Switched to using GitHub Actions as CI provider
 - Bumped minimum required Rust version to `1.57.0`
