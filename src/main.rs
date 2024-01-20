@@ -1,21 +1,7 @@
 // main.rs
 
-// *************************************************************************
-// * Copyright (C) 2019-2023 Daniel Mueller (deso@posteo.net)              *
-// *                                                                       *
-// * This program is free software: you can redistribute it and/or modify  *
-// * it under the terms of the GNU General Public License as published by  *
-// * the Free Software Foundation, either version 3 of the License, or     *
-// * (at your option) any later version.                                   *
-// *                                                                       *
-// * This program is distributed in the hope that it will be useful,       *
-// * but WITHOUT ANY WARRANTY; without even the implied warranty of        *
-// * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the         *
-// * GNU General Public License for more details.                          *
-// *                                                                       *
-// * You should have received a copy of the GNU General Public License     *
-// * along with this program.  If not, see <http://www.gnu.org/licenses/>. *
-// *************************************************************************
+// Copyright (C) 2019-2024 Daniel Mueller (deso@posteo.net)
+// SPDX-License-Identifier: GPL-3.0-or-later
 
 #![allow(clippy::let_unit_value)]
 #![warn(
@@ -34,7 +20,6 @@
   overflowing_literals,
   path_statements,
   patterns_in_fns_without_body,
-  private_in_public,
   proc_macro_derive_resolution_fallback,
   renamed_and_removed_lints,
   rust_2018_compatibility,
