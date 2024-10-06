@@ -1,3 +1,9 @@
+Unreleased
+----------
+- Handle "blocked" Neovim instances more gracefully and without hitting
+  timeouts
+
+
 0.2.0
 -----
 - Adjusted logic to work with Neovim 0.9.0 and higher

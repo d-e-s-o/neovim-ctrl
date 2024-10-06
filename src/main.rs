@@ -482,9 +482,29 @@ enum Status {
 
 /// Feed keys to the Neovim instance represented by the given session.
 fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, CallError)> {
-  session.start_event_loop();
+  let () = session.start_event_loop();
 
   let mut nvim = Neovim::new(session);
+
+  // Regular function calls are handled in a deferred manner: they are
+  // queued on the main loop and processed sequentially with normal
+  // input. So if the editor is waiting for user input in a "modal"
+  // fashion (e.g. the hit-enter-prompt), the request will block. We
+  // don't want that to happen and so we check with the asynchronous
+  // get_mode call whether Neovim is currently blocked and bail out
+  // early if that is the case.
+  //
+  // See https://neovim.io/doc/user/api.html#api-fast
+  let mode = nvim.get_mode().ctx(|| "failed to query Neovim mode")?;
+  if let Some((_blocking, value)) = mode.iter().find(|(k, _)| k.as_str() == Some("blocking")) {
+    if value.as_bool() == Some(true) {
+      return Err(CallError::GenericError(
+        "neovim instance is currently blocked and unable to serve requests".to_string(),
+      ))
+      .ctx(|| "unable interact with neovim");
+    }
+  }
+
   let before = nvim
     .call_function("nvim_get_current_win", vec![])
     .ctx(|| "failed to retrieve currently active window")?;
