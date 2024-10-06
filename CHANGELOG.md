@@ -1,5 +1,5 @@
-Unreleased
-----------
+0.2.1
+-----
 - Handle "blocked" Neovim instances more gracefully and without hitting
   timeouts
 
