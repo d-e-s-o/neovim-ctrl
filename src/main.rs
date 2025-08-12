@@ -1,46 +1,6 @@
 // Copyright (C) 2019-2025 Daniel Mueller <deso@posteo.net>
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#![allow(clippy::let_unit_value)]
-#![warn(
-  bad_style,
-  dead_code,
-  future_incompatible,
-  improper_ctypes,
-  late_bound_lifetime_arguments,
-  missing_copy_implementations,
-  missing_debug_implementations,
-  missing_docs,
-  no_mangle_generic_items,
-  non_shorthand_field_patterns,
-  nonstandard_style,
-  overflowing_literals,
-  path_statements,
-  patterns_in_fns_without_body,
-  proc_macro_derive_resolution_fallback,
-  renamed_and_removed_lints,
-  rust_2018_compatibility,
-  rust_2018_idioms,
-  stable_features,
-  trivial_bounds,
-  trivial_numeric_casts,
-  type_alias_bounds,
-  tyvar_behind_raw_pointer,
-  unconditional_recursion,
-  unreachable_code,
-  unreachable_patterns,
-  unstable_features,
-  unstable_name_collisions,
-  unused,
-  unused_comparisons,
-  unused_import_braces,
-  unused_lifetimes,
-  unused_qualifications,
-  unused_results,
-  while_true,
-  rustdoc::broken_intra_doc_links
-)]
-
 //! `neovim-ctrl` is a program for finding and interacting with a Neovim
 //! instance running in the current terminal.
 
@@ -217,7 +177,7 @@ fn is_chardev(mode: Mode) -> bool {
 
 /// Find PID "file name" pointed to by `/proc/self`.
 fn find_self() -> Result<OsString> {
-  let dst = read_link(PROC_SELF).ctx(|| format!("failed to dereference {}", PROC_SELF))?;
+  let dst = read_link(PROC_SELF).ctx(|| format!("failed to dereference {PROC_SELF}"))?;
   // The link effectively just points to a PID, not an entire path. So
   // it makes sense to treat the result as a mere `OsString`.
   Ok(dst.into_os_string())
@@ -269,7 +229,7 @@ fn check_pid(s: &OsStr) -> Option<Pid> {
 /// Retrieve an iterator over all process entries within /proc.
 fn proc_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
   read_dir(PROC)
-    .ctx(|| format!("failed to read directory {}", PROC))
+    .ctx(|| format!("failed to read directory {PROC}"))
     .map(|x| {
       x.filter_map(|entry| {
         match entry {
@@ -284,15 +244,14 @@ fn proc_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
               None
             }
           },
-          Err(err) => {
-            Some(Err(err).ctx(|| format!("failed to read directory entry below {}", PROC)))
-          },
+          Err(err) => Some(Err(err).ctx(|| format!("failed to read directory entry below {PROC}"))),
         }
       })
     })
 }
 
-/// A filter_handler to filter out the self entry from a list of `DirEntry` objects.
+/// A [`filter`][Filter::filter] handler to filter out the self entry
+/// from a list of `DirEntry` objects.
 fn filter_self<P>(entry: &DirEntry, self_: P) -> bool
 where
   P: AsRef<OsStr>,
@@ -375,8 +334,9 @@ fn filter_non_stopped(entry: &DirEntry) -> Result<bool> {
 }
 
 
-/// A filter_handler to filter out all entries not having `parent_pid`
-/// as the parent process from a list of `DirEntry` objects.
+/// A [`filter`][Filter::filter] handler to filter out all entries not
+/// having `parent_pid` as the parent process from a list of `DirEntry`
+/// objects.
 fn filter_by_parent(entry: &DirEntry, parent_pid: Pid) -> Result<bool> {
   let mut path = entry.path();
   let () = path.push("status");
@@ -390,7 +350,7 @@ fn filter_by_parent(entry: &DirEntry, parent_pid: Pid) -> Result<bool> {
     if let Some(line) = line.strip_prefix("PPid:") {
       let line = line.trim();
       let pid = Pid::from_str(line)
-        .map_err(|err| IoError::new(ErrorKind::InvalidInput, format!("{}", err)))
+        .map_err(|err| IoError::new(ErrorKind::InvalidInput, format!("{err}")))
         .ctx(|| format!("failed to parse PPid from {}", path.display()))?;
       if pid == parent_pid {
         return Ok(true);
@@ -421,7 +381,8 @@ where
   }
 }
 
-/// A filter_map handler to map a process entry to a UNIX domain socket path.
+/// A [`map_flat`][Filter::map_flat] handler to map a process entry to a
+/// UNIX domain socket path.
 fn map_socket_inodes(entry: DirEntry) -> Result<impl Iterator<Item = Result<Inode>>> {
   let mut path = entry.path();
   path.push("fd");
@@ -455,8 +416,7 @@ fn map_inode_to_socket(line: &str, inode: Inode) -> Option<StdResult<PathBuf, Io
     Ok(x) if x == inode => Some(Ok(path.into())),
     Ok(_) => None,
     Err(_) => Some(Err(IoError::other(format!(
-      "encountered unparsable inode: {}",
-      inod
+      "encountered unparsable inode: {inod}"
     )))),
   }
 }
@@ -464,13 +424,13 @@ fn map_inode_to_socket(line: &str, inode: Inode) -> Option<StdResult<PathBuf, Io
 /// Map an inode to a UNIX domain socket path.
 fn map_unix_socket(inode: Inode) -> Option<Result<PathBuf>> {
   File::open(PROC_UNIX)
-    .ctx(|| format!("failed to open {}", PROC_UNIX))
+    .ctx(|| format!("failed to open {PROC_UNIX}"))
     .filter_map_flat(|file| {
       BufReader::new(file)
         .lines()
         .skip(1)
         .filter_map(|line| line.filter_map_flat(|x| map_inode_to_socket(&x, inode)))
-        .map(|x| x.ctx(|| format!("error while reading lines from {}", PROC_UNIX)))
+        .map(|x| x.ctx(|| format!("error while reading lines from {PROC_UNIX}")))
         .next()
     })
 }
@@ -517,7 +477,7 @@ fn feed_keys(mut session: Session, keys: Vec<u8>) -> StdResult<Status, (Str, Cal
     Value::String("m".into()),
     Value::Boolean(false),
   ];
-  let _ = nvim
+  let _value = nvim
     .session
     .call("nvim_feedkeys", args)
     .map_err(map_generic_error)
@@ -567,8 +527,8 @@ mod int {
           "Usage: nvim-ctrl {{find-socket,change-window}} tty [keys]"
         ),
         Error::NoChange => write!(f, "nothing changed"),
-        Error::Io(err) => write!(f, "{}", err),
-        Error::Neovim(err) => write!(f, "{}", err),
+        Error::Io(err) => write!(f, "{err}"),
+        Error::Neovim(err) => write!(f, "{err}"),
       }
     }
   }
@@ -719,7 +679,7 @@ fn main() -> StdResult<(), int::ExitError> {
         None,
         IoError::new(
           ErrorKind::NotFound,
-          format!("no UNIX domain socket found for process {}", pid),
+          format!("no UNIX domain socket found for process {pid}"),
         )
         .into(),
       ))?
