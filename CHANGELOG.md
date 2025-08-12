@@ -1,3 +1,8 @@
+Unreleased
+----------
+- Bumped minimum required Rust version to `1.74.0`
+
+
 0.2.1
 -----
 - Handle "blocked" Neovim instances more gracefully and without hitting

@@ -1,6 +1,6 @@
 [![pipeline](https://github.com/d-e-s-o/neovim-ctrl/actions/workflows/test.yml/badge.svg?branch=main)](https://github.com/d-e-s-o/neovim-ctrl/actions/workflows/test.yml)
 [![crates.io](https://img.shields.io/crates/v/neovim-ctrl.svg)](https://crates.io/crates/neovim-ctrl)
-[![rustc](https://img.shields.io/badge/rustc-1.57+-blue.svg)](https://blog.rust-lang.org/2021/12/02/Rust-1.57.0.html)
+[![rustc](https://img.shields.io/badge/rustc-1.74+-blue.svg)](https://blog.rust-lang.org/2023/11/16/Rust-1.74.0/)
 
 neovim-ctrl
 ===========
