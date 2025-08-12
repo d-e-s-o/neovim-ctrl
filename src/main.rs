@@ -331,7 +331,7 @@ fn filter_nvim(entry: &DirEntry) -> Result<bool> {
       match path.file_name() {
         // If the process' executable starts with the nvim prefix we
         // take it.
-        Some(file) if file.to_str().map_or(false, |x| x.starts_with(NVIM)) => Ok(true),
+        Some(file) if file.to_str().is_some_and(|x| x.starts_with(NVIM)) => Ok(true),
         _ => Ok(false),
       }
     },
@@ -454,10 +454,10 @@ fn map_inode_to_socket(line: &str, inode: Inode) -> Option<StdResult<PathBuf, Io
   match Inode::from_str(inod) {
     Ok(x) if x == inode => Some(Ok(path.into())),
     Ok(_) => None,
-    Err(_) => Some(Err(IoError::new(
-      ErrorKind::Other,
-      format!("encountered unparsable inode: {}", inod),
-    ))),
+    Err(_) => Some(Err(IoError::other(format!(
+      "encountered unparsable inode: {}",
+      inod
+    )))),
   }
 }
 
@@ -636,13 +636,13 @@ fn nvim_entries() -> Result<impl Iterator<Item = Result<(Pid, DirEntry)>>> {
 
 fn main() -> StdResult<(), int::ExitError> {
   let mut argv = args_os().skip(1);
-  let cmd = argv.next().ok_or_else(|| int::Error::Usage)?;
-  let tty = argv.next().ok_or_else(|| int::Error::Usage)?;
+  let cmd = argv.next().ok_or(int::Error::Usage)?;
+  let tty = argv.next().ok_or(int::Error::Usage)?;
   let tty = Path::new(&tty);
-  let cmd = match cmd.to_str().ok_or_else(|| int::Error::Usage)? {
+  let cmd = match cmd.to_str().ok_or(int::Error::Usage)? {
     "find-socket" => Ok(Command::FindSocket),
     "change-window" => {
-      let keys = argv.next().ok_or_else(|| int::Error::Usage)?;
+      let keys = argv.next().ok_or(int::Error::Usage)?;
       Ok(Command::ChangeWindow(keys.into_vec()))
     },
     _ => Err(int::Error::Usage),
